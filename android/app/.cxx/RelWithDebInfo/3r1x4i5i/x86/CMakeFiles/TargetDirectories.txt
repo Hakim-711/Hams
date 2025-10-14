@@ -1,0 +1,2 @@
+/Users/hakim/Downloads/HamsApp همس/HamsApp/hams/android/app/.cxx/RelWithDebInfo/3r1x4i5i/x86/CMakeFiles/edit_cache.dir
+/Users/hakim/Downloads/HamsApp همس/HamsApp/hams/android/app/.cxx/RelWithDebInfo/3r1x4i5i/x86/CMakeFiles/rebuild_cache.dir
