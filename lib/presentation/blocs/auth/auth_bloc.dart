@@ -1,7 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hams/core/network/api_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hams/core/storage/session_manager.dart';
 import '../../../domain/entities/user_entity.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
@@ -19,25 +18,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       AuthCheckSession event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
     try {
-      const secureStorage = FlutterSecureStorage();
+      final userId = await SessionManager.getUserId();
 
-      final userId = await secureStorage.read(key: 'userId');
- 
       if (userId != null) {
         final response = await ApiService.get('auth/$userId');
         final user = UserEntity(
-          userId: response['userId'],
-          username: response['username'],
-          passcode: "", // ما يرجعه السيرفر بعد تسجيل الدخول
+          userId: response['userId'] ?? userId,
+          username: response['username'] ?? '',
+          passcode: '',
           profileImagePath: response['profileImagePath'] ?? '',
-          createdAt: DateTime.now(), // هذا نستخدمه فقط محليًا
+          createdAt:
+              DateTime.tryParse(response['createdAt'] ?? '') ?? DateTime.now(),
         );
         emit(AuthAuthenticated(user));
         return;
       }
       emit(AuthUnauthenticated());
     } catch (e) {
-      emit(const AuthError("فشل التحقق من الجلسة"));
+      emit(AuthError('فشل التحقق من الجلسة: $e'));
     }
   }
 
@@ -45,27 +43,29 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       AuthLoginRequested event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
     try {
-      final response = await ApiService.post('auth/login', data: {
-        'userId': event.userId,
-        'passcode': event.passcode,
-      });
-
-      final userJson = response['user'];
-
-      final user = UserEntity(
-        userId: userJson['userId'],
-        username: userJson['username'],
+      final response = await ApiService.login(
+        userId: event.userId,
         passcode: event.passcode,
-        profileImagePath: userJson['profileImagePath'] ?? '',
-        createdAt: DateTime.now(),
       );
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('userId', user.userId);
+      final userJson = response['user'] ?? {};
+      final sanitizedUser = UserEntity(
+        userId: userJson['userId'] ?? event.userId,
+        username: userJson['username'] ?? '',
+        passcode: '',
+        profileImagePath: userJson['profileImagePath'] ?? '',
+        createdAt: DateTime.tryParse(userJson['createdAt'] ?? '') ??
+            DateTime.now(),
+      );
 
-      emit(AuthAuthenticated(user));
+      await SessionManager.saveSession(
+        userId: sanitizedUser.userId,
+        token: response['token'] as String?,
+      );
+
+      emit(AuthAuthenticated(sanitizedUser));
     } catch (e) {
-      emit(const AuthError("فشل تسجيل الدخول"));
+      emit(AuthError('فشل تسجيل الدخول: $e'));
     }
   }
 
@@ -73,19 +73,37 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       AuthRegisterRequested event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
     try {
-      await ApiService.post('auth/register', data: {
+      final response = await ApiService.register(
+        userId: event.user.userId,
+        username: event.user.username,
+        passcode: event.user.passcode,
+        profileImagePath: event.user.profileImagePath,
+      );
+
+      final userJson = response['user'] ?? {
         'userId': event.user.userId,
         'username': event.user.username,
-        'passcode': event.user.passcode,
         'profileImagePath': event.user.profileImagePath,
-      });
+      };
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('userId', event.user.userId);
+      final sanitizedUser = UserEntity(
+        userId: userJson['userId'] ?? event.user.userId,
+        username: userJson['username'] ?? event.user.username,
+        passcode: '',
+        profileImagePath:
+            userJson['profileImagePath'] ?? event.user.profileImagePath,
+        createdAt: DateTime.tryParse(userJson['createdAt'] ?? '') ??
+            event.user.createdAt,
+      );
 
-      emit(AuthAuthenticated(event.user));
+      await SessionManager.saveSession(
+        userId: sanitizedUser.userId,
+        token: response['token'] as String?,
+      );
+
+      emit(AuthAuthenticated(sanitizedUser));
     } catch (e) {
-      emit(const AuthError("فشل التسجيل"));
+      emit(AuthError('فشل التسجيل: $e'));
     }
   }
 
@@ -93,15 +111,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       UpdateUserRequested event, Emitter<AuthState> emit) async {
     emit(AuthLoading());
     try {
-      emit(AuthAuthenticated(event.updatedUser));
-    } catch (_) {
-      emit(const AuthError("فشل التحديث"));
+      final sanitizedUser = UserEntity(
+        userId: event.updatedUser.userId,
+        username: event.updatedUser.username,
+        passcode: '',
+        profileImagePath: event.updatedUser.profileImagePath,
+        createdAt: event.updatedUser.createdAt,
+      );
+      emit(AuthAuthenticated(sanitizedUser));
+    } catch (e) {
+      emit(AuthError('فشل التحديث: $e'));
     }
   }
 
   void _onLogout(AuthLogoutRequested event, Emitter<AuthState> emit) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('userId');
+    await SessionManager.clearSession();
     emit(AuthUnauthenticated());
   }
 }

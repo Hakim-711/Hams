@@ -1,11 +1,10 @@
-// 📁 lib/presentation/screens/auth/restore_account_screen.dart
 import 'package:flutter/material.dart';
-import 'package:local_auth/local_auth.dart';
-import 'package:hams/core/network/api_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../blocs/auth/auth_bloc.dart';
-import '../../blocs/auth/auth_event.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:local_auth/local_auth.dart';
+
+import 'package:hams/core/network/api_service.dart';
+import 'package:hams/presentation/blocs/auth/auth_bloc.dart';
+import 'package:hams/presentation/blocs/auth/auth_event.dart';
 
 class RestoreAccountScreen extends StatefulWidget {
   const RestoreAccountScreen({super.key});
@@ -15,53 +14,66 @@ class RestoreAccountScreen extends StatefulWidget {
 }
 
 class _RestoreAccountScreenState extends State<RestoreAccountScreen> {
-  final LocalAuthentication auth = LocalAuthentication();
+  final LocalAuthentication _auth = LocalAuthentication();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passcodeController = TextEditingController();
-  bool isLoading = false;
 
-  Future<void> restoreAccount() async {
-    if (_usernameController.text.isEmpty || _passcodeController.text.isEmpty) {
-      _showError("يرجى تعبئة جميع الحقول");
+  bool _isLoading = false;
+
+  Future<void> _restoreAccount() async {
+    final username = _usernameController.text.trim();
+    final passcode = _passcodeController.text.trim();
+
+    if (username.isEmpty || passcode.isEmpty) {
+      _showError('يرجى تعبئة جميع الحقول');
       return;
     }
 
-    setState(() => isLoading = true);
+    setState(() => _isLoading = true);
 
     try {
       final result = await ApiService.post('auth/restore', data: {
-        'username': _usernameController.text.trim(),
-        'passcode': _passcodeController.text.trim(),
+        'username': username,
+        'passcode': passcode,
       });
 
-      bool authenticated = await auth.authenticate(
+      final didAuthenticate = await _auth.authenticate(
         localizedReason: 'الرجاء التحقق بالبصمة لاستعادة الحساب',
         options: const AuthenticationOptions(biometricOnly: true),
       );
 
-      if (!authenticated) {
-        _showError("فشلت المصادقة بالبصمة");
+      if (!didAuthenticate) {
+        _showError('فشلت المصادقة بالبصمة');
         return;
       }
 
-      const secureStorage = FlutterSecureStorage();
-      await secureStorage.write(
-        key: 'userId',
-        value: result['userId'],
-      );
+      if (!mounted) return;
+      final userId = result['userId'] as String?;
+      if (userId == null || userId.isEmpty) {
+        _showError('فشل الاستعادة: بيانات المستخدم غير مكتملة');
+        return;
+      }
 
-      context.read<AuthBloc>().add(AuthLoginRequested(
-          result['userId'], _passcodeController.text.trim()));
+      context.read<AuthBloc>().add(AuthLoginRequested(userId, passcode));
     } catch (e) {
       _showError('فشل الاستعادة: $e');
     } finally {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passcodeController.dispose();
+    super.dispose();
   }
 
   @override
@@ -85,9 +97,13 @@ class _RestoreAccountScreenState extends State<RestoreAccountScreen> {
             ),
             const SizedBox(height: 40),
             ElevatedButton(
-              onPressed: restoreAccount,
-              child: isLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
+              onPressed: _isLoading ? null : _restoreAccount,
+              child: _isLoading
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Text('استعادة الحساب'),
             ),
           ],

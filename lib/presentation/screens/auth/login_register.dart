@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:uuid/uuid.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:hams/core/network/api_service.dart';
+import 'package:hams/core/storage/session_manager.dart';
 import '../../blocs/auth/auth_bloc.dart';
 import '../../blocs/auth/auth_event.dart';
 import '../../blocs/auth/auth_state.dart';
@@ -21,7 +20,6 @@ class LoginRegisterScreen extends StatefulWidget {
 class _LoginRegisterScreenState extends State<LoginRegisterScreen>
     with SingleTickerProviderStateMixin {
   final LocalAuthentication auth = LocalAuthentication();
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passcodeController = TextEditingController();
 
@@ -44,7 +42,7 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen>
 
   Future<void> autoLoginIfAvailable() async {
     try {
-      final userId = await _secureStorage.read(key: 'biometric_user_id');
+      final userId = await SessionManager.getBiometricUserId();
 
       if (userId != null) {
         final didAuthenticate = await auth.authenticate(
@@ -53,11 +51,9 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen>
         );
 
         if (didAuthenticate) {
-          final token = await _secureStorage.read(key: 'auth_token');
-          if (token != null) {
-            context.read<AuthBloc>().add(AuthLoginRequested(userId, ''));
-            return;
-          }
+          if (!mounted) return;
+          context.read<AuthBloc>().add(AuthCheckSession());
+          return;
         }
       }
     } catch (e) {
@@ -100,53 +96,23 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen>
   }
 
   Future<void> registerUser() async {
-    try {
-      final userId = const Uuid().v4();
-      final user = UserEntity(
-        userId: userId,
-        username: _usernameController.text.trim(),
-        passcode: _passcodeController.text.trim(),
-        profileImagePath: '',
-        createdAt: DateTime.now(),
-      );
+    final userId = const Uuid().v4();
+    final user = UserEntity(
+      userId: userId,
+      username: _usernameController.text.trim(),
+      passcode: _passcodeController.text.trim(),
+      profileImagePath: '',
+      createdAt: DateTime.now(),
+    );
 
-      final response = await ApiService.post('auth/register', data: {
-        'userId': user.userId,
-        'username': user.username,
-        'passcode': user.passcode,
-        'profileImagePath': '',
-      });
-
-      await _secureStorage.write(key: 'biometric_user_id', value: user.userId);
-      await _secureStorage.write(key: 'auth_token', value: response['token']);
-
-      context
-          .read<AuthBloc>()
-          .add(AuthLoginRequested(user.userId, user.passcode));
-    } catch (e) {
-      showError('فشل التسجيل: $e');
-      setState(() => isLoading = false);
-    }
+    context.read<AuthBloc>().add(AuthRegisterRequested(user));
   }
 
   Future<void> loginUser() async {
-    try {
-      final userId = _usernameController.text.trim();
-      final passcode = _passcodeController.text.trim();
+    final userId = _usernameController.text.trim();
+    final passcode = _passcodeController.text.trim();
 
-      final response = await ApiService.post('auth/login', data: {
-        'userId': userId,
-        'passcode': passcode,
-      });
-
-      await _secureStorage.write(key: 'biometric_user_id', value: userId);
-      await _secureStorage.write(key: 'auth_token', value: response['token']);
-
-      context.read<AuthBloc>().add(AuthLoginRequested(userId, passcode));
-    } catch (e) {
-      showError("فشل الدخول: $e");
-      setState(() => isLoading = false);
-    }
+    context.read<AuthBloc>().add(AuthLoginRequested(userId, passcode));
   }
 
   void showError(String message) {
@@ -166,12 +132,20 @@ class _LoginRegisterScreenState extends State<LoginRegisterScreen>
   Widget build(BuildContext context) {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthAuthenticated) {
-          Navigator.pushReplacementNamed(context, '/home');
-        } else if (state is AuthError) {
-          showError(state.message);
+        if (state is AuthLoading) {
+          if (mounted) {
+            setState(() => isLoading = true);
+          }
+        } else {
+          if (state is AuthAuthenticated) {
+            Navigator.pushReplacementNamed(context, '/home');
+          } else if (state is AuthError) {
+            showError(state.message);
+          }
+          if (mounted) {
+            setState(() => isLoading = false);
+          }
         }
-        setState(() => isLoading = false);
       },
       child: Scaffold(
         body: isLoading

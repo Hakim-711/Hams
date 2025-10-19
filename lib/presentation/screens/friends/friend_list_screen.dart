@@ -68,8 +68,9 @@
 //   }
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import 'package:hams/core/network/api_service.dart';
+import 'package:hams/core/storage/session_manager.dart';
 
 class FriendListScreen extends StatefulWidget {
   const FriendListScreen({super.key});
@@ -79,7 +80,6 @@ class FriendListScreen extends StatefulWidget {
 }
 
 class _FriendListScreenState extends State<FriendListScreen> {
-  final _storage = const FlutterSecureStorage();
   List<Map<String, dynamic>> _friends = [];
   bool _isLoading = true;
 
@@ -90,13 +90,21 @@ class _FriendListScreenState extends State<FriendListScreen> {
   }
 
   Future<void> _loadFriends() async {
-    final userId = await _storage.read(key: 'biometric_user_id');
-    if (userId == null) return;
+    final userId = await SessionManager.getUserId();
+    if (userId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
 
     try {
       final data = await ApiService.get('friends/list/$userId');
+      final friends = data['friends'];
       setState(() {
-        _friends = List<Map<String, dynamic>>.from(data['friends']);
+        _friends = friends is List
+            ? friends
+                .whereType<Map<String, dynamic>>()
+                .toList(growable: false)
+            : <Map<String, dynamic>>[];
         _isLoading = false;
       });
     } catch (e) {
@@ -117,6 +125,17 @@ class _FriendListScreenState extends State<FriendListScreen> {
     );
   }
 
+  ImageProvider _buildAvatar(Map<String, dynamic> friend) {
+    final path = friend['profileImagePath'] as String?;
+    if (path == null || path.isEmpty) {
+      return const AssetImage('assets/user_placeholder.png');
+    }
+    if (path.startsWith('http')) {
+      return NetworkImage(path);
+    }
+    return const AssetImage('assets/user_placeholder.png');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -129,13 +148,15 @@ class _FriendListScreenState extends State<FriendListScreen> {
                   itemCount: _friends.length,
                   itemBuilder: (context, index) {
                     final friend = _friends[index];
+                    final username =
+                        (friend['username'] ?? 'مستخدم') as String;
+                    final userId = (friend['userId'] ?? '') as String;
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundImage:
-                            NetworkImage(friend['profileImagePath'] ?? ''),
+                        backgroundImage: _buildAvatar(friend),
                       ),
-                      title: Text(friend['username']),
-                      subtitle: Text(friend['userId']),
+                      title: Text(username),
+                      subtitle: Text(userId),
                       onTap: () => _openChat(friend),
                     );
                   },

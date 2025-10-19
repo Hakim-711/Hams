@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import 'package:hams/core/network/api_service.dart';
+import 'package:hams/core/storage/session_manager.dart';
 
 class FriendRequestsScreen extends StatefulWidget {
   const FriendRequestsScreen({super.key});
@@ -10,7 +11,6 @@ class FriendRequestsScreen extends StatefulWidget {
 }
 
 class _FriendRequestsScreenState extends State<FriendRequestsScreen> {
-  final _storage = const FlutterSecureStorage();
   List<Map<String, dynamic>> _requests = [];
   bool _isLoading = true;
 
@@ -21,13 +21,21 @@ class _FriendRequestsScreenState extends State<FriendRequestsScreen> {
   }
 
   Future<void> _loadRequests() async {
-    final userId = await _storage.read(key: 'biometric_user_id');
-    if (userId == null) return;
+    final userId = await SessionManager.getUserId();
+    if (userId == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
 
     try {
       final data = await ApiService.get('friends/pending/$userId');
+      final requests = data['requests'];
       setState(() {
-        _requests = List<Map<String, dynamic>>.from(data['requests']);
+        _requests = requests is List
+            ? requests
+                .whereType<Map<String, dynamic>>()
+                .toList(growable: false)
+            : <Map<String, dynamic>>[];
         _isLoading = false;
       });
     } catch (e) {
@@ -60,14 +68,21 @@ class _FriendRequestsScreenState extends State<FriendRequestsScreen> {
               : ListView.builder(
                   itemCount: _requests.length,
                   itemBuilder: (context, index) {
-                    final r = _requests[index]['fromUser'];
+                    final r = _requests[index]['fromUser']
+                        as Map<String, dynamic>? ??
+                        const <String, dynamic>{};
+                    final username = (r['username'] ?? 'مستخدم مجهول') as String;
+                    final userId = (r['userId'] ?? '') as String;
+                    final avatar = r['profileImagePath'] as String?;
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundImage:
-                            NetworkImage(r['profileImagePath'] ?? ''),
+                        backgroundImage: (avatar != null && avatar.isNotEmpty)
+                            ? NetworkImage(avatar)
+                            : const AssetImage('assets/user_placeholder.png')
+                                as ImageProvider,
                       ),
-                      title: Text(r['username']),
-                      subtitle: Text(r['userId']),
+                      title: Text(username),
+                      subtitle: Text(userId),
                       trailing: ElevatedButton(
                         onPressed: () => _acceptRequest(_requests[index]['id']),
                         child: const Text('قبول'),

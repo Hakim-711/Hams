@@ -1,7 +1,6 @@
 // 📁 lib/presentation/screens/chat_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hams/core/network/api_service.dart';
 import 'package:hams/core/network/socket_service.dart';
 import 'package:hams/core/utils/encryption_helper.dart';
@@ -9,6 +8,7 @@ import 'package:hams/data/local/models/message_model.dart';
 import 'package:hams/data/local/models/room_model.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:hams/core/storage/session_manager.dart';
 
 class ChatScreen extends StatefulWidget {
   final RoomModel room;
@@ -21,7 +21,6 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final _storage = const FlutterSecureStorage();
 
   List<MessageModel> messages = [];
   MessageModel? _replyToMessage;
@@ -61,7 +60,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initChat() async {
-    userId = await _storage.read(key: 'biometric_user_id');
+    userId = await SessionManager.getUserId();
     await _loadMessages();
     await _markMessagesAsRead();
     setState(() => isLoading = false);

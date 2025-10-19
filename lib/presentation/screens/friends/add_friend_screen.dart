@@ -1,7 +1,9 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../../../core/network/api_service.dart';
+
+import 'package:hams/core/network/api_service.dart';
+import 'package:hams/core/storage/session_manager.dart';
 
 class AddFriendScreen extends StatefulWidget {
   const AddFriendScreen({super.key});
@@ -15,14 +17,23 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
   Map<String, dynamic>? _foundUser;
   bool _isLoading = false;
 
+  ImageProvider _buildAvatar(dynamic path) {
+    if (path is String && path.isNotEmpty) {
+      if (path.startsWith('http')) {
+        return NetworkImage(path);
+      }
+    }
+    return const AssetImage('assets/user_placeholder.png');
+  }
+
   Future<void> _searchUser() async {
     setState(() => _isLoading = true);
     final id = _idController.text.trim();
 
     try {
-      final user = await ApiService.get('users/$id');
+      final user = await ApiService.get('auth/$id');
       setState(() {
-        _foundUser = user;
+        _foundUser = user.isEmpty ? null : user;
         _isLoading = false;
       });
     } catch (e) {
@@ -38,8 +49,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
   Future<void> _sendFriendRequest() async {
     if (_foundUser == null) return;
 
-    const storage = FlutterSecureStorage();
-    final myId = await storage.read(key: 'biometric_user_id');
+    final myId = await SessionManager.getUserId();
 
     if (myId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -50,7 +60,7 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
     try {
       await ApiService.post('friends/request', data: {
         'fromId': myId,
-        'toId': _foundUser!['userId'], // ← هذا الحقل من الbackend
+        'toId': _foundUser!['userId'],
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -118,15 +128,15 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
                                 borderRadius: BorderRadius.circular(16)),
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundImage: NetworkImage(
-                                    _foundUser!['profileImagePath']),
+                                backgroundImage:
+                                    _buildAvatar(_foundUser!['profileImagePath']),
                               ),
                               title: Text(
-                                _foundUser!['username'],
+                                (_foundUser!['username'] ?? 'مستخدم') as String,
                                 style: const TextStyle(color: Colors.white),
                               ),
                               subtitle: Text(
-                                'ID: ${_foundUser!['id']}',
+                                'ID: ${_foundUser!['userId'] ?? ''}',
                                 style: const TextStyle(color: Colors.white70),
                               ),
                               trailing: ElevatedButton(

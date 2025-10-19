@@ -1,157 +1,49 @@
-// // import 'dart:convert';
-// // import 'package:http/http.dart' as http;
-
-// // class ApiService {
-// //   static const String baseUrl =
-// //       'http://localhost:3000'; // ✅ عدّلها حسب عنوان السيرفر
-
-// //   // REGISTER
-// //   static Future<Map<String, dynamic>> register({
-// //     required String userId,
-// //     required String username,
-// //     required String passcode,
-// //     required String profileImagePath,
-// //   }) async {
-// //     final response = await http.post(
-// //       Uri.parse('$baseUrl/auth/register'),
-// //       headers: {'Content-Type': 'application/json'},
-// //       body: jsonEncode({
-// //         'userId': userId,
-// //         'username': username,
-// //         'passcode': passcode,
-// //         'profileImagePath': profileImagePath,
-// //       }),
-// //     );
-
-// //     if (response.statusCode == 200) {
-// //       return jsonDecode(response.body);
-// //     } else {
-// //       throw Exception('فشل التسجيل: ${response.body}');
-// //     }
-// //   }
-
-// //   // LOGIN
-// //   static Future<Map<String, dynamic>> login({
-// //     required String userId,
-// //   }) async {
-// //     final response = await http.get(
-// //       Uri.parse('$baseUrl/auth/$userId'),
-// //     );
-
-// //     if (response.statusCode == 200) {
-// //       return jsonDecode(response.body);
-// //     } else {
-// //       throw Exception('فشل تسجيل الدخول: ${response.body}');
-// //     }
-// //   }
-
-// //   //post
-
-// //   static Future<Map<String, dynamic>> post(
-// //     String endpoint, {
-// //     Map<String, dynamic>? data,
-// //   }) async {
-// //     final response = await http.post(
-// //       Uri.parse('$baseUrl/$endpoint'),
-// //       headers: {'Content-Type': 'application/json'},
-// //       body: jsonEncode(data),
-// //     );
-
-// //     if (response.statusCode == 200) {
-// //       return jsonDecode(response.body);
-// //     } else {
-// //       throw Exception('فشل الاتصال بالخادم: ${response.body}');
-// //     }
-// //   }
-// // }
-
-// import 'dart:convert';
-// import 'package:http/http.dart' as http;
-
-// class ApiService {
-//   static const String baseUrl =
-//       'http://localhost:3000'; // 🔁 UPDATE for production
-
-//   // Generic GET (returns Map)
-//   static Future<Map<String, dynamic>> get(String endpoint) async {
-//     final response = await http.get(Uri.parse('$baseUrl/$endpoint'));
-//     if (response.statusCode == 200) {
-//       return jsonDecode(response.body);
-//     } else {
-//       throw Exception('GET failed: ${response.body}');
-//     }
-//   }
-
-//   // Generic GET List (returns List of Map)
-//   static Future<List<Map<String, dynamic>>> getList(String endpoint) async {
-//     final response = await http.get(Uri.parse('$baseUrl/$endpoint'));
-//     if (response.statusCode == 200) {
-//       return List<Map<String, dynamic>>.from(jsonDecode(response.body));
-//     } else {
-//       throw Exception('GET list failed: ${response.body}');
-//     }
-//   }
-
-//   // Generic POST
-//   static Future<Map<String, dynamic>> post(String endpoint,
-//       {Map<String, dynamic>? data}) async {
-//     final response = await http.post(
-//       Uri.parse('$baseUrl/$endpoint'),
-//       headers: {'Content-Type': 'application/json'},
-//       body: jsonEncode(data),
-//     );
-//     if (response.statusCode >= 200 && response.statusCode < 300) {
-//       return jsonDecode(response.body);
-//     } else {
-//       throw Exception(jsonDecode(response.body)['message'] ?? 'خطأ غير معروف');
-//     }
-//   }
-
-//   // Generic PUT
-//   static Future<Map<String, dynamic>> put(String endpoint,
-//       {Map<String, dynamic>? data}) async {
-//     final response = await http.put(
-//       Uri.parse('$baseUrl/$endpoint'),
-//       headers: {'Content-Type': 'application/json'},
-//       body: jsonEncode(data),
-//     );
-
-//     if (response.statusCode == 200) {
-//       return jsonDecode(response.body);
-//     } else {
-//       throw Exception('PUT failed: ${response.body}');
-//     }
-//   }
-
-//   // Generic DELETE
-//   static Future<bool> delete(String endpoint) async {
-//     final response = await http.delete(Uri.parse('$baseUrl/$endpoint'));
-//     if (response.statusCode == 200) {
-//       return true;
-//     } else {
-//       throw Exception('DELETE failed: ${response.body}');
-//     }
-//   }
-//
-//
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+import 'package:hams/core/storage/session_manager.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://192.168.1.145:3000';
-  static const _storage = FlutterSecureStorage();
+  ApiService._();
 
-  /// ✅ Helper: إضافة Authorization إذا كان عندك JWT
-  static Future<Map<String, String>> _buildHeaders() async {
-    final token = await _storage.read(key: 'auth_token');
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
+  static final String baseUrl = const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:3000',
+  );
+
+  static Future<Map<String, String>> _buildHeaders({bool includeContentType = true}) async {
+    final headers = <String, String>{
+      'Accept': 'application/json',
     };
+
+    if (includeContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    final token = await SessionManager.getToken();
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+
+    return headers;
   }
 
-  /// ✅ تسجيل مستخدم جديد
+  static Uri _buildUri(String endpoint) {
+    return Uri.parse('$baseUrl/$endpoint');
+  }
+
+  static Map<String, dynamic> _decodeBody(http.Response response) {
+    if (response.body.isEmpty) {
+      return <String, dynamic>{};
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    throw Exception('Unexpected response shape: $decoded');
+  }
+
   static Future<Map<String, dynamic>> register({
     required String userId,
     required String username,
@@ -159,8 +51,8 @@ class ApiService {
     required String profileImagePath,
   }) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/auth/register'),
-      headers: {'Content-Type': 'application/json'},
+      _buildUri('auth/register'),
+      headers: await _buildHeaders(),
       body: jsonEncode({
         'userId': userId,
         'username': username,
@@ -170,112 +62,123 @@ class ApiService {
     );
 
     if (response.statusCode == 200 || response.statusCode == 201) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('فشل التسجيل: ${response.body}');
+      return _decodeBody(response);
     }
+
+    throw Exception('فشل التسجيل: ${response.body}');
   }
 
-  /// ✅ تسجيل الدخول (عن طريق userId + passcode)
   static Future<Map<String, dynamic>> login({
     required String userId,
     required String passcode,
   }) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/auth/login'),
-      headers: {'Content-Type': 'application/json'},
+      _buildUri('auth/login'),
+      headers: await _buildHeaders(),
       body: jsonEncode({'userId': userId, 'passcode': passcode}),
     );
 
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('فشل تسجيل الدخول: ${response.body}');
+      return _decodeBody(response);
     }
+
+    throw Exception('فشل تسجيل الدخول: ${response.body}');
   }
 
-  /// ✅ جلب مستخدم حسب userId
   static Future<Map<String, dynamic>> getUserById(String userId) async {
-    final response = await http.get(Uri.parse('$baseUrl/auth/user/$userId'));
+    final response = await http.get(
+      _buildUri('auth/$userId'),
+      headers: await _buildHeaders(includeContentType: false),
+    );
 
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('المستخدم غير موجود');
+      return _decodeBody(response);
     }
+
+    throw Exception('المستخدم غير موجود');
   }
 
-  /// 🔄 GET (single object)
   static Future<Map<String, dynamic>> get(String endpoint) async {
-    final headers = await _buildHeaders();
-    final response =
-        await http.get(Uri.parse('$baseUrl/$endpoint'), headers: headers);
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('GET failed: ${response.body}');
-    }
-  }
-
-  /// 🔄 GET (list of objects)
-  static Future<List<Map<String, dynamic>>> getList(String endpoint) async {
-    final headers = await _buildHeaders();
-    final response =
-        await http.get(Uri.parse('$baseUrl/$endpoint'), headers: headers);
-
-    if (response.statusCode == 200) {
-      return List<Map<String, dynamic>>.from(jsonDecode(response.body));
-    } else {
-      throw Exception('GET list failed: ${response.body}');
-    }
-  }
-
-  /// ✅ POST (with optional body)
-  static Future<Map<String, dynamic>> post(String endpoint,
-      {Map<String, dynamic>? data}) async {
-    final headers = await _buildHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/$endpoint'),
-      headers: headers,
-      body: jsonEncode(data),
+    final response = await http.get(
+      _buildUri(endpoint),
+      headers: await _buildHeaders(includeContentType: false),
     );
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return jsonDecode(response.body);
-    } else {
-      final body = jsonDecode(response.body);
-      throw Exception(body['message'] ?? 'خطأ غير معروف');
+      return _decodeBody(response);
     }
+
+    throw Exception('GET failed: ${response.body}');
   }
 
-  /// 🔄 PUT (update)
-  static Future<Map<String, dynamic>> put(String endpoint,
-      {Map<String, dynamic>? data}) async {
-    final headers = await _buildHeaders();
-    final response = await http.put(
-      Uri.parse('$baseUrl/$endpoint'),
-      headers: headers,
-      body: jsonEncode(data),
+  static Future<List<Map<String, dynamic>>> getList(String endpoint) async {
+    final response = await http.get(
+      _buildUri(endpoint),
+      headers: await _buildHeaders(includeContentType: false),
     );
 
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('PUT failed: ${response.body}');
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final decoded = response.body.isEmpty ? [] : jsonDecode(response.body);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map<String, dynamic>>()
+            .toList(growable: false);
+      }
+      throw Exception('GET list failed: غير متوقع - $decoded');
     }
+
+    throw Exception('GET list failed: ${response.body}');
   }
 
-  /// 🗑️ DELETE
-  static Future<bool> delete(String endpoint) async {
-    final headers = await _buildHeaders();
-    final response =
-        await http.delete(Uri.parse('$baseUrl/$endpoint'), headers: headers);
+  static Future<Map<String, dynamic>> post(
+    String endpoint, {
+    Map<String, dynamic>? data,
+  }) async {
+    final response = await http.post(
+      _buildUri(endpoint),
+      headers: await _buildHeaders(),
+      body: jsonEncode(data ?? <String, dynamic>{}),
+    );
 
-    if (response.statusCode == 200) {
-      return true;
-    } else {
-      throw Exception('DELETE failed: ${response.body}');
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return _decodeBody(response);
     }
+
+    final body = response.body.isNotEmpty ? jsonDecode(response.body) : null;
+    if (body is Map<String, dynamic> && body.containsKey('message')) {
+      throw Exception(body['message']);
+    }
+
+    throw Exception('POST failed: ${response.body}');
+  }
+
+  static Future<Map<String, dynamic>> put(
+    String endpoint, {
+    Map<String, dynamic>? data,
+  }) async {
+    final response = await http.put(
+      _buildUri(endpoint),
+      headers: await _buildHeaders(),
+      body: jsonEncode(data ?? <String, dynamic>{}),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return _decodeBody(response);
+    }
+
+    throw Exception('PUT failed: ${response.body}');
+  }
+
+  static Future<bool> delete(String endpoint) async {
+    final response = await http.delete(
+      _buildUri(endpoint),
+      headers: await _buildHeaders(includeContentType: false),
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return true;
+    }
+
+    throw Exception('DELETE failed: ${response.body}');
   }
 }
